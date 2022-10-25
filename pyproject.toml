@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openNS"
+description = "An open source discord bot for the nationstates online RPG"
+readme = "README.md"
+requires-python = ">=3.8, <4"
+keywords = []
+license = {file='LICENCE'}
+classifiers = [
+	"Programming Language :: Python :: 3",
+]
+dependencies = [
+	'nationstates',
+	'discord.py',
+	'asyncpg'
+]
+version="0.0.0"
+
+[tool.setuptools]
+package-dir = {""="src"}
+packages = ["openNS"]
+
+[project.scripts]
+openNS = "openNS.hello:hello"
