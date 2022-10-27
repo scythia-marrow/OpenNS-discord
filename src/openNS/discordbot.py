@@ -9,14 +9,16 @@ import discord
 import aiosqlite
 from aiosqlite import Connection
 from discord.ext import commands
+from discord import Embed
 
 # Following the guide from:
 # https://github.com/Rapptz/discord.py/blob/master/examples/advanced_startup.py
 
 class OpenNSDiscord(commands.Bot):
-	def __init__(self, dbfile, *args, **kwargs):
+	def __init__(self, dbfile, signlambda, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.log = logging.getLogger('discord')
+		self.signlambda = signlambda
 		self.dbfile = dbfile
 
 	async def setup_hook(self):
@@ -30,22 +32,33 @@ class Ping(commands.Cog):
 
 	@commands.command()
 	async def ping(self, ctx, *, member: discord.Member = None):
-		await ctx.send("pong")
+		self.bot.log.info("Called ping...")
+		message = Embed(
+			url="https://scythiamarrow.org",
+			title="clicktest")
+		sign = str(self.bot.signlambda("Sign test"),'utf-8')
+		await ctx.send(f'Hi there! Sign is {sign}',embed=message)
 
 class Verify(commands.Cog):
 	def __init__(self, bot):
 		self.bot = bot
 
 	@commands.command()
-	async def ping(self, ctx, *, member: discord.Member = None):
-		self.bot.log.error("Called ping...")
+	async def verify(self, ctx, *, member: discord.Member = None):
+		self.bot.log.info(f'Called verify by {ctx.author}...')
+		# First, check if the author is already verified
+		author = ctx.author
+		is_verified = await self.bot.db.execute(
+			f"SELECT * FROM openNSverify WHERE name=\'{author}\';")
+		print(is_verified)
 		await ctx.send("pong")
 
 async def addcogs(bot):
 	await bot.add_cog(Ping(bot))
-	bot.log.info("Added cog...")
+	await bot.add_cog(Verify(bot))
+	bot.log.info("Added cogs...")
 
-def initbot(database):
+def initbot(database, signlambda):
 	handler = logging.handlers.RotatingFileHandler(
 		filename='openNS.log',
 		encoding='utf-8',
@@ -67,6 +80,7 @@ def initbot(database):
 	# Discord changed recently to not need command prefixes
 	bot = OpenNSDiscord(
 		dbfile=database,
+		signlambda=signlambda,
 		command_prefix="",
 		intents = intents,
 		log_handler=handler)

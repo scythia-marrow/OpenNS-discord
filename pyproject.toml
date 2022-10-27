@@ -16,7 +16,8 @@ dependencies = [
 	'nationstates',
 	'discord.py',
 	'asyncpg',
-	'aiosqlite'
+	'aiosqlite',
+	'cryptography'
 ]
 version="0.0.0"
 

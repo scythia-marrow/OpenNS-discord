@@ -2,3 +2,4 @@ discord.py
 nationstates
 asyncpg
 aiosqlite
+cryptography
