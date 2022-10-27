@@ -15,7 +15,8 @@ classifiers = [
 dependencies = [
 	'nationstates',
 	'discord.py',
-	'asyncpg'
+	'asyncpg',
+	'aiosqlite'
 ]
 version="0.0.0"
 

@@ -1,3 +1,4 @@
 discord.py
 nationstates
 asyncpg
+aiosqlite

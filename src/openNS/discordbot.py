@@ -6,35 +6,46 @@ import os
 
 # Discord imports
 import discord
+import aiosqlite
+from aiosqlite import Connection
 from discord.ext import commands
-from typing import List, Optional
-from aiohttp import ClientSession
 
 # Following the guide from:
 # https://github.com/Rapptz/discord.py/blob/master/examples/advanced_startup.py
 
-class OpenNSBot(commands.Bot):
-	def __init__(
-		self,
-		*args,
-		initial_extensions: List[str],
-		db_pool: asyncpg.Pool,
-		web_client: ClientSession,
-		**kwargs
-	):
+class OpenNSDiscord(commands.Bot):
+	def __init__(self, dbfile, *args, **kwargs):
 		super().__init__(*args, **kwargs)
-		self.db_pool = db_pool
-		self.web_client = web_client
-		self.initial_extensions = initial_extensions
-	
-	async def setup_hook(self) -> None:
-		for extension in self.initial_extensions:
-			await self.load_extension(extension)
+		self.log = logging.getLogger('discord')
+		self.dbfile = dbfile
 
-async def runbot(token):
-	logger = logging.getLogger('discord')
-	logger.setLevel(logging.INFO)
-	
+	async def setup_hook(self):
+		self.db = await aiosqlite.connect(self.dbfile)
+		self.log.info("Connected to Database...")
+		
+
+class Ping(commands.Cog):
+	def __init__(self, bot):
+		self.bot = bot
+
+	@commands.command()
+	async def ping(self, ctx, *, member: discord.Member = None):
+		await ctx.send("pong")
+
+class Verify(commands.Cog):
+	def __init__(self, bot):
+		self.bot = bot
+
+	@commands.command()
+	async def ping(self, ctx, *, member: discord.Member = None):
+		self.bot.log.error("Called ping...")
+		await ctx.send("pong")
+
+async def addcogs(bot):
+	await bot.add_cog(Ping(bot))
+	bot.log.info("Added cog...")
+
+def initbot(database):
 	handler = logging.handlers.RotatingFileHandler(
 		filename='openNS.log',
 		encoding='utf-8',
@@ -46,14 +57,17 @@ async def runbot(token):
 		dt_fmt,
 		style="{")
 	handler.setFormatter(formatter)
-	logger.addHandler(handler)
-	
-	async with ClientSession() as client, asyncpg.create_pool(
-		user='scythia',
-		command_timeout=30) as pool:
-		extension = ['general']
-		async with OpenNSBot(
-			commands.when_mentioned,
-			db_pool=pool,
-			initial_extensions=extension) as bot:
-			await bot.start(token)
+	discord.utils.setup_logging(handler = handler, root = False)
+
+	# The intents for openNS are simple
+	intents = discord.Intents.default()
+	intents.message_content = True
+	intents.reactions = True
+
+	# Discord changed recently to not need command prefixes
+	bot = OpenNSDiscord(
+		dbfile=database,
+		command_prefix="",
+		intents = intents,
+		log_handler=handler)
+	return bot

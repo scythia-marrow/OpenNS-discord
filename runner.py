@@ -3,7 +3,7 @@ import asyncio
 import discord
 
 # Module imports
-from openNS.discordbot import OpenNSBot, runbot
+from openNS.discordbot import initbot, addcogs
 
 class OpenNSClient(discord.Client):
 	async def on_ready(self):
@@ -20,7 +20,11 @@ class iniVariables:
 	def __init__(self,args):
 		if "token" in args and "database" in args:
 			self.valid = True
-			token = [x for x in open(args["token"],"r")][0]
+			tokenline = open(args["token"],"r").readline()
+			print(tokenline)
+			user = tokenline.split(":")[0].strip()
+			token = tokenline.split(":")[1].strip()
+			self.user = user
 			self.token = token
 			self.database = args["database"]
 		else:
@@ -49,12 +53,10 @@ if __name__ == "__main__":
 	inivars = readIni(inifile)
 	if not inivars.valid: sys.exit(1)
 	token = inivars.token
+	user = inivars.user
+	database = inivars.database
 	print("TOKEN FOUND:",token)
-	# Initialize the bot
-	# asyncio.run(runbot(token))
-	# set the commands of the bot
-	intents = discord.Intents.default()
-	intents.message_content = True
-	client = OpenNSClient(intents = intents)
-	client.run(token)
-	# import openNS.commands
+	bot = initbot(database)
+	asyncio.run(addcogs(bot))
+	bot.run(token)
+	#import openNS.commands
