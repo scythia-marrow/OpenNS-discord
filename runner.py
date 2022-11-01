@@ -8,26 +8,13 @@ from openNS.discordbot import initbot, addcogs
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
-from openNS.discordbot import Greeting
-
-class OpenNSClient(discord.Client):
-	async def on_ready(self):
-		print("Logged on as", self.user)
-	async def on_message(self, message):
-		if message.author == self.user:
-			return
-		if message.content == 'ping':
-			await message.channel.send('pong')
-
 # As an entrypoint, all we do is pass the database location and discord token
 # to the bot package.
 class iniVariables:
 	def __init__(self,args):
-		print(args)
 		if "token" in args and "database" in args:
 			self.valid = True
 			tokenline = open(args["token"],"r").readline()
-			print(tokenline)
 			user = tokenline.split(":")[0].strip()
 			token = tokenline.split(":")[1].strip()
 			self.user = user
@@ -83,4 +70,3 @@ if __name__ == "__main__":
 	signlambda = lambda x: sign(prvkey,x,10).decode('utf-8')
 	bot = initbot(database,signlambda)
 	bot.run(token)
-	#import openNS.commands
