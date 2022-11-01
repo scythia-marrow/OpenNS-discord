@@ -8,8 +8,8 @@ import os
 import discord
 import aiosqlite
 from aiosqlite import Connection
-from discord.ext import commands
-from discord import Embed
+from discord.ext import commands, tasks
+from discord import Embed, Message
 
 # Following the guide from:
 # https://github.com/Rapptz/discord.py/blob/master/examples/advanced_startup.py
@@ -24,7 +24,13 @@ class OpenNSDiscord(commands.Bot):
 	async def setup_hook(self):
 		self.db = await aiosqlite.connect(self.dbfile)
 		self.log.info("Connected to Database...")
+		await addcogs(self)
+		self.log.info("Added cogs...")
 		
+async def addcogs(bot):
+	await bot.add_cog(Ping(bot))
+	await bot.add_cog(Verify(bot))
+	await bot.add_cog(Greeting(bot))
 
 class Ping(commands.Cog):
 	def __init__(self, bot):
@@ -39,9 +45,54 @@ class Ping(commands.Cog):
 		sign = str(self.bot.signlambda("Sign test"),'utf-8')
 		await ctx.send(f'Hi there! Sign is {sign}',embed=message)
 
-class Verify(commands.Cog):
+class Greeting(commands.Cog):
 	def __init__(self, bot):
 		self.bot = bot
+		self.index = 0
+		self.checknations.start()
+
+	def cog_unload(self):
+        	self.checknations.cancel()
+
+	# Check for new arrivals every second
+	@tasks.loop(seconds = 1.0)
+	async def checknations(self):
+		self.index += 1
+		self.bot.log.info(f"CHECKED NATIONS! {self.index}")
+	
+	@checknations.before_loop
+	async def before_checknations(self):
+		self.bot.log.info("Awaiting in Greeting Cog...")
+		await self.bot.wait_until_ready()
+	
+
+class Verify(commands.Cog):
+	verifyTemplate = '''
+		To verify your Nation States account, reply to this message
+		with the code found at this personalized link.
+	'''
+	def __init__(self, bot):
+		self.bot = bot
+
+	def isreply(self, message, rid):
+		print("Checking...", message.id, rid, message.reference)
+		ret = False
+		if not message.reference is None and message.reference.resolved:
+			print("Refid", message.reference.message_id)
+			ret = rid == message.reference.message_id
+		print("Checked...",ret)
+		return ret
+
+	def createLink(self, user):
+		# For the token, sign the username with the private key
+		token = self.bot.signlambda(f'{user}')
+		print("TOKEN:",token)
+		embed = Embed(url="https://scythiamarrow.org",title="Verify")
+		return token, embed
+
+	def processCode(self, user, token, code):
+		print("PROCESS!", user, token, code)
+		return "Verification error, sorry T-T"
 
 	@commands.command()
 	async def verify(self, ctx, *, member: discord.Member = None):
@@ -49,14 +100,14 @@ class Verify(commands.Cog):
 		# First, check if the author is already verified
 		author = ctx.author
 		is_verified = await self.bot.db.execute(
-			f"SELECT * FROM openNSverify WHERE name=\'{author}\';")
+			f"SELECT * FROM verify WHERE name=\'{author}\';")
 		print(is_verified)
-		await ctx.send("pong")
-
-async def addcogs(bot):
-	await bot.add_cog(Ping(bot))
-	await bot.add_cog(Verify(bot))
-	bot.log.info("Added cogs...")
+		token, embed = self.createLink(author)
+		sentid = await ctx.send(self.verifyTemplate, embed=embed)
+		checkL = lambda x: self.isreply(x,rid=sentid.id)
+		codemessage = await self.bot.wait_for('message',check=checkL)
+		code = codemessage.content
+		await ctx.send(self.processCode(author, token, code))
 
 def initbot(database, signlambda):
 	handler = logging.handlers.RotatingFileHandler(

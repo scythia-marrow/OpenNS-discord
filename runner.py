@@ -8,6 +8,8 @@ from openNS.discordbot import initbot, addcogs
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 
+from openNS.discordbot import Greeting
+
 class OpenNSClient(discord.Client):
 	async def on_ready(self):
 		print("Logged on as", self.user)
@@ -78,8 +80,7 @@ if __name__ == "__main__":
 	prvkey = serialization.load_pem_private_key(prvdat,None)
 	pubkey = serialization.load_pem_public_key(pubdat,None)
 	# This is the only place sign should be called from
-	signlambda = lambda x: sign(prvkey,x,10)
+	signlambda = lambda x: sign(prvkey,x,10).decode('utf-8')
 	bot = initbot(database,signlambda)
-	asyncio.run(addcogs(bot))
 	bot.run(token)
 	#import openNS.commands
