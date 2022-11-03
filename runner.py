@@ -12,16 +12,18 @@ from cryptography.hazmat.primitives.asymmetric import padding
 # to the bot package.
 class iniVariables:
 	def __init__(self,args):
-		if "token" in args and "database" in args:
+		try:
 			self.valid = True
 			tokenline = open(args["token"],"r").readline()
 			user = tokenline.split(":")[0].strip()
 			token = tokenline.split(":")[1].strip()
-			self.user = user
-			self.token = token
+			self.discorduser = user
+			self.discordtoken = token
 			self.database = args["database"]
 			self.cryptokey = args["cryptokey"]
-		else:
+			userfile = open(args["useragent"],"r")
+			self.NSuser = userfile.readline().strip()
+		except KeyError as e:
 			self.valid = False
 	def isValid(self):
 		return self.valid
@@ -59,14 +61,14 @@ if __name__ == "__main__":
 	inifile = open("openNS-discord.ini","r")
 	inivars = readIni(inifile)
 	if not inivars.valid: sys.exit(1)
-	token = inivars.token
-	user = inivars.user
+	discordtoken = inivars.discordtoken
 	database = inivars.database
+	useragent = inivars.NSuser
 	prvdat = open(inivars.cryptokey,"rb").read()
 	pubdat = open(inivars.cryptokey+".pub","rb").read()
 	prvkey = serialization.load_pem_private_key(prvdat,None)
 	pubkey = serialization.load_pem_public_key(pubdat,None)
 	# This is the only place sign should be called from
 	signlambda = lambda x: sign(prvkey,x,10).decode('utf-8')
-	bot = initbot(database,signlambda)
-	bot.run(token)
+	bot = initbot(database,signlambda,useragent)
+	bot.run(discordtoken)

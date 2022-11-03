@@ -8,8 +8,7 @@ async def tableGen(databasefile):
 			CREATE TABLE verify (
 				name TEXT,
 				nation TEXT,
-				token TEXT,
-				uuid INTEGER
+				token TEXT
 			);
 		''')
 		await db.execute('''
@@ -21,7 +20,7 @@ async def tableGen(databasefile):
 		''')
 		await db.execute('''
 			CREATE TABLE telegramtemplate (
-				uuid INTEGER,
+				name TEXT,
 				sign TEXT,
 				head TEXT
 			);

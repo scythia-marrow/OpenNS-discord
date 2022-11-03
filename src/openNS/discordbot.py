@@ -11,15 +11,16 @@ from aiosqlite import Connection
 from discord.ext import commands, tasks
 from discord import Embed, Message
 
-# Following the guide from:
-# https://github.com/Rapptz/discord.py/blob/master/examples/advanced_startup.py
+# Nationstates imports
+import nationstates
 
 class OpenNSDiscord(commands.Bot):
-	def __init__(self, dbfile, signlambda, *args, **kwargs):
+	def __init__(self, dbfile, signlambda, useragent, *args, **kwargs):
 		super().__init__(*args, **kwargs)
 		self.log = logging.getLogger('discord')
 		self.signlambda = signlambda
 		self.dbfile = dbfile
+		self.api = nationstates.Nationstates(useragent)
 
 	async def setup_hook(self):
 		self.db = await aiosqlite.connect(self.dbfile)
@@ -68,8 +69,7 @@ class Greeting(commands.Cog):
 
 class Verify(commands.Cog):
 	verifyTemplate = '''
-		To verify your Nation States account, reply to this message
-		with the code found at this personalized link.
+		To verify your Nation States nation, reply to this message with the code found at this personalized link.
 	'''
 	def __init__(self, bot):
 		self.bot = bot
@@ -86,30 +86,61 @@ class Verify(commands.Cog):
 	def createLink(self, user):
 		# For the token, sign the username with the private key
 		token = self.bot.signlambda(f'{user}')
-		print("TOKEN:",token)
-		embed = Embed(url="https://scythiamarrow.org",title="Verify")
+		urlbase = "https://www.nationstates.net/page=verify_login"
+		urltoken = f"?token={token}"
+		url = urlbase + urltoken
+		embed = Embed(url=url,title="Verify")
+		self.bot.log.info(f"Verifying at url {url}")
 		return token, embed
 
-	def processCode(self, user, token, code):
-		print("PROCESS!", user, token, code)
+	async def processCode(self, author, nation, token, code):
+		api = self.bot.api.nation(nation)
+		call = api.verify(checksum=code,token=token)
+		if call["data"].strip() == "1":
+			await self.store(author, nation, token)
+			return "Verification success! Whoo ^-^"
 		return "Verification error, sorry T-T"
 
-	@commands.command()
-	async def verify(self, ctx, *, member: discord.Member = None):
-		self.bot.log.info(f'Called verify by {ctx.author}...')
-		# First, check if the author is already verified
-		author = ctx.author
-		is_verified = await self.bot.db.execute(
-			f"SELECT * FROM verify WHERE name=\'{author}\';")
-		print(is_verified)
+	async def sanitizeArgs(self, ctx, args):
+		# Check that the nation argument is present
+		if not len(args) == 1:
+			await ctx.send("Usage: verify <nation_name>")
+			return False,"",[]
+		# Check that the author and nation are already verified
+		author, nation = ctx.author, args[0]
+		qpre = "SELECT * FROM verify"
+		query = qpre + f" WHERE name='{author}' AND nation='{nation}'"
+		verified = await self.bot.db.execute(query)
+		rows = await verified.fetchall()
+		if len(rows) > 0:
+			self.bot.log.warn(f"{rows} already verified...")
+			await ctx.send(f"You are already verified to {nation}")
+			return False, author, args[0]
+		else:
+			self.bot.log.info(f"{nation} not verified...")
+		return True, author, args[0]
+
+	async def store(self, discorduser, nation, token):
+		table = f"(name, nation, token)"
+		store = f"('{discorduser}', '{nation}', '{token}')"
+		full = f"INSERT INTO verify {table} VALUES {store}"
+		await self.bot.db.execute(full)
+		await self.bot.db.commit()
+
+	@commands.command(nation='str')
+	async def verify(self, ctx, *args, member: discord.Member = None):
+		valid, author, nation = await self.sanitizeArgs(ctx, args)
+		if not valid: return
+		self.bot.log.info(f'Valid verify call by {ctx.author}...')
 		token, embed = self.createLink(author)
 		sentid = await ctx.send(self.verifyTemplate, embed=embed)
 		checkL = lambda x: self.isreply(x,rid=sentid.id)
 		codemessage = await self.bot.wait_for('message',check=checkL)
 		code = codemessage.content
-		await ctx.send(self.processCode(author, token, code))
+		process = await self.processCode(author, nation, token, code)
+		await ctx.send(process)
 
-def initbot(database, signlambda):
+def initbot(database, signlambda, useragent):
 	handler = logging.handlers.RotatingFileHandler(
 		filename='openNS.log',
 		encoding='utf-8',
@@ -132,6 +163,7 @@ def initbot(database, signlambda):
 	bot = OpenNSDiscord(
 		dbfile=database,
 		signlambda=signlambda,
+		useragent=useragent,
 		command_prefix="",
 		intents = intents,
 		log_handler=handler)
