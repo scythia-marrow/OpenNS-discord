@@ -3,16 +3,24 @@ import logging
 import logging.handlers
 import asyncpg
 import os
+import urllib
+import time
 
 # Discord imports
 import discord
 import aiosqlite
 from aiosqlite import Connection
 from discord.ext import commands, tasks
-from discord import Embed, Message
+from discord import Embed
 
 # Nationstates imports
 import nationstates
+
+# Internal imports
+from openNS.ping import Ping
+from openNS.verify import Verify
+from openNS.greet import Greet
+from openNS.telegram import Telegram
 
 class OpenNSDiscord(commands.Bot):
 	def __init__(self, dbfile, signlambda, useragent, *args, **kwargs):
@@ -21,124 +29,64 @@ class OpenNSDiscord(commands.Bot):
 		self.signlambda = signlambda
 		self.dbfile = dbfile
 		self.api = nationstates.Nationstates(useragent)
+	
+	# Helper functions for components
+	def timestamp(self): return int(time.time())
 
+	def telegramEmbed(self, tonation, template = None):
+		urlbase = "https://www.nationstates.net/page=compose_telegram"
+		urlto = f"?tgto={tonation}"
+		url = urlbase + urlto
+		if not template == None: url = url + "&" + template
+		return Embed(url = url, title = "Send Telegram")
+
+	# Async helper functions for components
+	async def templateEmbed(self, author, tonation):
+		# Get the template from the database
+		query = f'''
+			SELECT head,sign FROM telegramtemplate
+			WHERE name='{author}'
+		'''
+		cursor = await self.db.execute(query)
+		result = await cursor.fetchone()
+		# URLify the template
+		head, sign = "",""
+		if not result == None:
+			head, sign = [urllib.parse.quote(x) for x in result]
+		# Add a few newlines between the header and signature
+		template = head + "%0A%0A%0A" + sign
+		urltemplate = f"message={template}"
+		embed = self.telegramEmbed(tonation, template=urltemplate)
+		# Return the result
+		return embed
+
+	async def isVerified(self, author, nation=None):
+		qpre = "SELECT * FROM verify"
+		qnat = f" AND nation='{nation}'" if not nation == None else ""
+		query = qpre + f" WHERE name='{author}'" + qnat
+		verified = await self.db.execute(query)
+		rows = await verified.fetchall()
+		if len(rows) > 0: return True
+		return False
+
+	# Basic bot maintainence tasks
 	async def setup_hook(self):
+		# Connect to the database
 		self.db = await aiosqlite.connect(self.dbfile)
 		self.log.info("Connected to Database...")
+		# Add cogs
 		await addcogs(self)
 		self.log.info("Added cogs...")
 		
+	#TODO: EFFICIENCY. Execute database queries every 60 seconds by default
+	# @tasks.loop(seconds = 60.0)
+
+# Helper function to add all cogs to a bot TODO: FUNCTION. Add options.
 async def addcogs(bot):
 	await bot.add_cog(Ping(bot))
 	await bot.add_cog(Verify(bot))
-	await bot.add_cog(Greeting(bot))
-
-class Ping(commands.Cog):
-	def __init__(self, bot):
-		self.bot = bot
-
-	@commands.command()
-	async def ping(self, ctx, *, member: discord.Member = None):
-		self.bot.log.info("Called ping...")
-		message = Embed(
-			url="https://scythiamarrow.org",
-			title="clicktest")
-		sign = str(self.bot.signlambda("Sign test"),'utf-8')
-		await ctx.send(f'Hi there! Sign is {sign}',embed=message)
-
-class Greeting(commands.Cog):
-	def __init__(self, bot):
-		self.bot = bot
-		self.index = 0
-		self.checknations.start()
-
-	def cog_unload(self):
-        	self.checknations.cancel()
-
-	# Check for new arrivals every second
-	@tasks.loop(seconds = 1.0)
-	async def checknations(self):
-		self.index += 1
-		self.bot.log.info(f"CHECKED NATIONS! {self.index}")
-	
-	@checknations.before_loop
-	async def before_checknations(self):
-		self.bot.log.info("Awaiting in Greeting Cog...")
-		await self.bot.wait_until_ready()
-	
-
-class Verify(commands.Cog):
-	verifyTemplate = '''
-		To verify your Nation States nation, reply to this message with the code found at this personalized link.
-	'''
-	def __init__(self, bot):
-		self.bot = bot
-
-	def isreply(self, message, rid):
-		print("Checking...", message.id, rid, message.reference)
-		ret = False
-		if not message.reference is None and message.reference.resolved:
-			print("Refid", message.reference.message_id)
-			ret = rid == message.reference.message_id
-		print("Checked...",ret)
-		return ret
-
-	def createLink(self, user):
-		# For the token, sign the username with the private key
-		token = self.bot.signlambda(f'{user}')
-		urlbase = "https://www.nationstates.net/page=verify_login"
-		urltoken = f"?token={token}"
-		url = urlbase + urltoken
-		embed = Embed(url=url,title="Verify")
-		self.bot.log.info(f"Verifying at url {url}")
-		return token, embed
-
-	async def processCode(self, author, nation, token, code):
-		api = self.bot.api.nation(nation)
-		call = api.verify(checksum=code,token=token)
-		if call["data"].strip() == "1":
-			await self.store(author, nation, token)
-			return "Verification success! Whoo ^-^"
-		return "Verification error, sorry T-T"
-
-	async def sanitizeArgs(self, ctx, args):
-		# Check that the nation argument is present
-		if not len(args) == 1:
-			await ctx.send("Usage: verify <nation_name>")
-			return False,"",[]
-		# Check that the author and nation are already verified
-		author, nation = ctx.author, args[0]
-		qpre = "SELECT * FROM verify"
-		query = qpre + f" WHERE name='{author}' AND nation='{nation}'"
-		verified = await self.bot.db.execute(query)
-		rows = await verified.fetchall()
-		if len(rows) > 0:
-			self.bot.log.warn(f"{rows} already verified...")
-			await ctx.send(f"You are already verified to {nation}")
-			return False, author, args[0]
-		else:
-			self.bot.log.info(f"{nation} not verified...")
-		return True, author, args[0]
-
-	async def store(self, discorduser, nation, token):
-		table = f"(name, nation, token)"
-		store = f"('{discorduser}', '{nation}', '{token}')"
-		full = f"INSERT INTO verify {table} VALUES {store}"
-		await self.bot.db.execute(full)
-		await self.bot.db.commit()
-
-	@commands.command(nation='str')
-	async def verify(self, ctx, *args, member: discord.Member = None):
-		valid, author, nation = await self.sanitizeArgs(ctx, args)
-		if not valid: return
-		self.bot.log.info(f'Valid verify call by {ctx.author}...')
-		token, embed = self.createLink(author)
-		sentid = await ctx.send(self.verifyTemplate, embed=embed)
-		checkL = lambda x: self.isreply(x,rid=sentid.id)
-		codemessage = await self.bot.wait_for('message',check=checkL)
-		code = codemessage.content
-		process = await self.processCode(author, nation, token, code)
-		await ctx.send(process)
+	await bot.add_cog(Greet(bot))
+	await bot.add_cog(Telegram(bot))
 
 def initbot(database, signlambda, useragent):
 	handler = logging.handlers.RotatingFileHandler(
@@ -158,13 +106,18 @@ def initbot(database, signlambda, useragent):
 	intents = discord.Intents.default()
 	intents.message_content = True
 	intents.reactions = True
-
-	# Discord changed recently to not need command prefixes
+	
+	# Ensure the command prefix is actually the bot mention
+	async def prefix(bot, message):
+		return bot.user.mention
+	
+	# Do the thingy
 	bot = OpenNSDiscord(
 		dbfile=database,
 		signlambda=signlambda,
 		useragent=useragent,
-		command_prefix="",
+		command_prefix = prefix,
+		strip_after_prefix = True,
 		intents = intents,
 		log_handler=handler)
 	return bot
