@@ -69,7 +69,7 @@ class Greet(commands.Cog):
 				ORDER BY time DESC
 			''')
 			nation = await nationcursor.fetchone()
-			if nation == None:
+			if not nation == None:
 				nation = nation[0].split("|")
 			else: nation = ""
 			# Get the happenings from this region
