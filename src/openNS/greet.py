@@ -48,6 +48,7 @@ class Greet(commands.Cog):
 		self.pollArrival.start()
 		self.storeFrame.start()
 		self.reactiontask.start()
+		self.reactcleantask.start()
 
 	async def cog_load(self):
 		# Read in the registered channels into the cog state
@@ -97,7 +98,7 @@ class Greet(commands.Cog):
 							name)
 					)
 					self.bot.log.info(f"Notified {channel}")
-		self.bot.log.info(f"CHECKED REGIONS! {self.region}")
+		self.bot.log.debug(f"CHECKED REGIONS! {self.region}")
 
 	@pollArrival.before_loop
 	async def before_pollArrival(self):
@@ -192,6 +193,7 @@ If you want to use a stored personalized template react ✉ to this message!
 		# Register a listener to this message reactions
 		endtime = self.bot.timestamp() + 3600*48
 		self.reactionlisten[msg.id] = (toname,endtime)
+		self.bot.log.info(f"Reactions to {toname}, ending {endtime}...")
 
 	@tasks.loop(seconds=60)
 	async def reactcleantask(self):
@@ -199,6 +201,8 @@ If you want to use a stored personalized template react ✉ to this message!
 			tonation, time = self.reactionlisten[messageid]
 			if self.bot.timestamp() > time:
 				del self.reactionlisten[messageid]
+				logstr = f"Ceased reactions on {messageid}"
+				self.bot.log.info(logstr)
 
 	@tasks.loop()
 	async def reactiontask(self):
@@ -208,14 +212,17 @@ If you want to use a stored personalized template react ✉ to this message!
 				verified = await self.bot.isVerified(user)
 				return verified
 			return commands.check(asyncverify) and mess
-		reaction,user = await self.bot.wait_for(
-			"reaction_add",
-			timeout = 360.0,
-			check=check)
+		try:
+			reaction,user = await self.bot.wait_for(
+				"reaction_add", timeout = 11.0, check=check)
+		except asyncio.TimeoutError:
+			dbgstr = "Timeout, restarting reaction task"
+			self.bot.log.debug(dbgstr)
+			return
 		# Get the to of this message
 		tonation,_ = self.reactionlisten[reaction.message.id]
 		# Send the telegram template to the user
 		slide = await user.create_dm()
-		dm = "Here is a personalized telegram link!"
+		dm = f"Here is a personalized telegram link for {tonation}"
 		embed = await self.bot.templateEmbed(user, tonation)
 		await slide.send(dm, embed=embed)
