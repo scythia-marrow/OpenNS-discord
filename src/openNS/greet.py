@@ -12,8 +12,8 @@ def getHappening(api, region):
 def filterArrival(happening):
 	arriveL = lambda x: "arrived" in x
 	nameL = lambda x: (x[0],x[1].split()[0].strip('@'))
-	arrivals = [nameL(x) for x in happening if arriveL(x[1])]
-	return arrivals
+	arrival = [nameL(x) for x in happening if arriveL(x[1])]
+	return arrival
 
 def filterDeparture(happening):
 	leftL = lambda x: "departed" in x[1] or "ceased" in x[1]
@@ -28,8 +28,12 @@ def filterTimestamp(happening, timestamp):
 # TODO: small bug here where people returning after leaving will be filtered
 def filterGreeting(happening):
 	arrived = filterArrival(happening)
-	_,left = zip(*filterDeparture(happening))
-	stayed = [x for x in arrived if not x[1] in left]
+	left = filterDeparture(happening)
+	stayed = []
+	for arrive in arrived:
+		depart = next(((ts,n) for ts,n in left if n==arrive[1]), None)
+		if depart == None or depart[0] < arrive[0]:
+			stayed.append(arrive)
 	return stayed
 
 class Greet(commands.Cog):
@@ -38,9 +42,12 @@ class Greet(commands.Cog):
 		self.region = set([])
 		self.channel = {}
 		self.greetcache = set([])
+		self.reactionlisten = {}
 		self.timestamp = 0
+		# Start the task to monitor reactions to this message
 		self.pollArrival.start()
 		self.storeFrame.start()
+		self.reactiontask.start()
 
 	async def cog_load(self):
 		# Read in the registered channels into the cog state
@@ -83,10 +90,12 @@ class Greet(commands.Cog):
 				self.greetcache |= set([name])
 				self.bot.log.info(f"New arrival to {region}")
 				for channel in self.channel[region]:
-					self.notifyarrival.start(
+					asyncio.create_task(
+						self.notifyarrival(
 							channel,
 							region,
 							name)
+					)
 					self.bot.log.info(f"Notified {channel}")
 		self.bot.log.info(f"CHECKED REGIONS! {self.region}")
 
@@ -168,7 +177,6 @@ class Greet(commands.Cog):
 		self.bot.log.info("Registered the region...")
 		await ctx.send("Registration successful...")
 
-	@tasks.loop(count=1)
 	async def notifyarrival(self,channelid,region,toname):
 		self.bot.log.info(f"Notifying the arrival of {toname}...")
 		channel = self.bot.get_channel(channelid)
@@ -181,29 +189,33 @@ If you want to use a stored personalized template react ✉ to this message!
 		msg = await channel.send(greet, embed = embed)
 		envelope = '✉'
 		await msg.add_reaction(envelope)
-		def verifycheck(reaction, user):
-			async def asyncverify(ctx):
-				verified = await self.bot.isVerified(user)
-				return verified
-			return commands.check(asyncverify)
-		# Start the task to monitor reactions to this message
-		self.reactiontask.start(msg, toname)
+		# Register a listener to this message reactions
+		endtime = self.bot.timestamp() + 3600*48
+		self.reactionlisten[msg.id] = (toname,endtime)
 
-	@tasks.loop(seconds=1, count = 60)
-	async def reactiontask(self, message, tonation):
+	@tasks.loop(seconds=60)
+	async def reactcleantask(self):
+		for messageid in self.reactionlisten:
+			tonation, time = self.reactionlisten[messageid]
+			if self.bot.timestamp() > time:
+				del self.reactionlisten[messageid]
+
+	@tasks.loop()
+	async def reactiontask(self):
 		def check(reaction, user):
-			mess = reaction.message.id == message.id
+			mess = reaction.message.id in self.reactionlisten
 			async def asyncverify(ctx):
 				verified = await self.bot.isVerified(user)
 				return verified
 			return commands.check(asyncverify) and mess
 		reaction,user = await self.bot.wait_for(
 			"reaction_add",
-			timeout = 60.0,
+			timeout = 360.0,
 			check=check)
+		# Get the to of this message
+		tonation,_ = self.reactionlisten[reaction.message.id]
 		# Send the telegram template to the user
 		slide = await user.create_dm()
 		dm = "Here is a personalized telegram link!"
 		embed = await self.bot.templateEmbed(user, tonation)
 		await slide.send(dm, embed=embed)
-
