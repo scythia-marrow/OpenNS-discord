@@ -32,6 +32,7 @@ class Verify(commands.Cog):
 		if call["data"].strip() == "1":
 			await self.store(author, nation, token)
 			return "Verification success! Whoo ^-^"
+		self.bot.log.warn("Verification data " + str(call))
 		return "Verification error, sorry T-T"
 
 	async def sanitizeArgs(self, ctx, args):
