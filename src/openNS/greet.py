@@ -66,7 +66,7 @@ class Greet(commands.Cog):
 	def cog_unload(self):
         	self.checknations.cancel()
 
-	# Check for new arrivals every second
+	# Check for new arrivals every few seconds
 	@tasks.loop(seconds = 10.0)
 	async def pollArrival(self):
 		# TODO: EFFICIENCY. Allow for more than one region at a time
@@ -81,7 +81,11 @@ class Greet(commands.Cog):
 				nation = nation[0].split("|")
 			else: nation = ""
 			# Get the happenings from this region
-			happening = getHappening(self.bot.api,region)
+			try:
+				happening = getHappening(self.bot.api,region)
+			except BadResponse as r:
+				self.bot.log.error(f"Bad response: {r}")
+				continue
 			time = filterTimestamp(happening, self.timestamp)
 			greet = filterGreeting(time)
 			# If there is a greeting message we haven't sent
