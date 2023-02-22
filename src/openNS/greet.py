@@ -143,14 +143,17 @@ class Greet(commands.Cog):
 		self.bot.log.info("Awaiting in storeFrame...")
 		await self.bot.wait_until_ready()
 
-	async def sanitizeArgs(self, ctx, args):
-		subcom = ["register <region>"]
+	async def sendHelptext(self,ctx):
+		subcom = ["register <region>", "clear ?<region>"]
 		helptext = "Usage: greet <command>\nCommands:"
-		for sub in subcom: helptext += "\n\tregister <region>"
-		if not len(args) == 2 and not args[0] == "register":
-			await ctx.send(helptext)
+		for sub in subcom: helptext += f"\n\t{sub}"
+		await ctx.send(helptext)
+
+	async def sanitizeRegister(self, ctx, args):
+		if not len(args) == 1:
+			await self.sendHelptext(ctx)
 			return False, "", ""
-		region = args[1]
+		region = args[0]
 		channel = ctx.channel.id
 		duplicatetext = f"This channel already greets {region}"
 		if region in self.region and channel in self.channel[region]:
@@ -160,27 +163,79 @@ class Greet(commands.Cog):
 			self.channel[region] = []
 		return True, region, channel
 
+	async def sanitizeClear(self,ctx,region,args):
+		self.bot.log.warn(f"Clear args {args}")
+		if len(args) > 0:
+			await self.sendHelptext(ctx)
+			return False, "", ""
+		channel = ctx.channel.id
+		invalidclear = f"This channel does not greet {region}"
+		if not region == None:
+			isreg = region in self.region
+			if not (isreg and channel in self.channel[region]):
+				await ctx.send(invalidclear)
+				return False, region, channel
+		return True, region, channel
+
 	# Place the channel into the database
-	async def register(self, region, channel):
+	async def store(self, region, channel):
 		query = f'''
 			INSERT INTO regionregister (name, channel)
 			VALUES ('{region}',{channel})
 		'''
 		await self.bot.db.execute(query)
 		await self.bot.db.commit()
+	
+	# Remove a channel from the database
+	async def remove(self,region,channel):
+		if region == None:
+			query = f'''
+				DELETE FROM regionregister
+				WHERE channel={channel}
+			'''
+		else:
+			query = f'''
+				DELETE FROM regionregister
+				WHERE name='{region}' AND channel={channel}
+			'''
+		self.bot.log.info(f"Executing query {query}...")
+		await self.bot.db.execute(query)
+		await self.bot.db.commit()
+
+	@commands.group(invoke_without_command=True)
+	async def greet(self, ctx, *args):
+		await self.sendHelptext(ctx)
 		
 	# Register the channel this command is called in to the greeting
-	@commands.command(subcom='str',nation='str')
-	async def greet(self, ctx, *args):
-		self.bot.log.info("Greeting dispatch...")
-		valid,region,channel = await self.sanitizeArgs(ctx, args)
+	@greet.command(nation='str')
+	async def register(self, ctx, *args):
+		self.bot.log.info(f"Greet register dispatch {ctx}...")
+		valid,region,channel = await self.sanitizeRegister(ctx, args)
 		if not valid: return
 		self.bot.log.info("Valid registration, registering channel...")
 		self.channel[region].append(channel)
 		self.region |= set([region])
-		await self.register(region, channel)
+		await self.store(region, channel)
 		self.bot.log.info("Registered the region...")
 		await ctx.send("Registration successful...")
+
+
+	# TODO: this has scaling issues... Use sql results?
+	@greet.command(nation='str')
+	async def clear(self, ctx, nation=None, *args):
+		self.bot.log.info("Greet clear dispatch...")
+		valid,region,channel = await self.sanitizeClear(ctx,nation,args)
+		if not valid: return
+		self.bot.log.info("Valid clear, clearing channel...")
+		if region == None:
+			for reg in self.channel:
+				if channel in self.channel[reg]:
+					self.channel[reg].remove(channel)
+		elif channel in self.channel[region]:
+			self.channel[region].remove(channel)
+		await self.remove(region,channel)
+		self.bot.log.info("Removed the channel...")
+		await ctx.send("Clear successful...")
 
 	async def notifyarrival(self,channelid,region,toname):
 		self.bot.log.info(f"Notifying the arrival of {toname}...")

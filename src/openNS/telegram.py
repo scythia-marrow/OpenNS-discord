@@ -37,7 +37,7 @@ class Telegram(commands.Cog):
 			INSERT INTO telegramtemplate (name,head,sign)
 			VALUES ('{author}','{head}','{sign}')
 		''')
-		else: head, sign = template[0]
+		else: head, sign = template
 		return head, sign
 
 	async def storetemplate(self, author, head, sign):
